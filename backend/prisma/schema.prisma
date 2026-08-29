@@ -1,0 +1,90 @@
+// Prisma Schema for ReachInbox Email Scheduler
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmailStatus {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  RATE_LIMITED
+}
+
+model User {
+  id          String            @id @default(uuid())
+  googleId    String?           @unique
+  email       String            @unique
+  name        String?
+  avatarUrl   String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  senders     EmailSender[]
+  jobs        EmailJob[]
+  slack       SlackConnection?
+
+  @@map("users")
+}
+
+model EmailSender {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email       String
+  displayName String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  jobs        EmailJob[]
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@map("email_senders")
+}
+
+model EmailJob {
+  id              String       @id @default(uuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderId        String
+  sender          EmailSender  @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  recipientEmail  String
+  subject         String
+  body            String       @db.Text
+  scheduledAt     DateTime
+  sentAt          DateTime?
+  status          EmailStatus  @default(SCHEDULED)
+  attempts        Int          @default(0)
+  idempotencyKey  String       @unique
+  bullJobId       String?
+  error           String?      @db.Text
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([userId, status])
+  @@index([senderId, scheduledAt])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("email_jobs")
+}
+
+model SlackConnection {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken String    @db.Text
+  teamId      String?
+  teamName    String?
+  channelId   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("slack_connections")
+}
