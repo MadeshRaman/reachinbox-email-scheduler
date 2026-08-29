@@ -9,7 +9,15 @@ import {
   HealthCheckResponse,
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
+/**
+ * Returns the full backend Google OAuth initiation URL dynamically based on environment configuration.
+ */
+export const getGoogleAuthUrl = (): string => {
+  const base = API_BASE_URL.replace(/\/+$/, '');
+  return `${base}/auth/google`;
+};
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

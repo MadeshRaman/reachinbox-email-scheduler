@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Sparkles, ShieldCheck, Zap, HardDrive, Search, Slack, ArrowRight } from 'lucide-react';
-import { loginApi } from '../services/api';
+import { loginApi, getGoogleAuthUrl } from '../services/api';
 import { User } from '../types';
 
 interface LoginPageProps {
@@ -14,8 +14,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
   const handleGoogleLogin = () => {
     setLoading(true);
-    // Redirect to backend OAuth route
-    window.location.href = 'http://localhost:5000/api/auth/google';
+    // Redirect to backend OAuth route dynamically configured via environment
+    window.location.href = getGoogleAuthUrl();
   };
 
   const featurePills = [
