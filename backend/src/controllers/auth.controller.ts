@@ -21,12 +21,58 @@ export const extractUserIdFromToken = (req: Request): string | null => {
 };
 
 /**
+ * Resolves the Google OAuth callback redirect URI dynamically.
+ */
+export const getGoogleRedirectUri = (req?: Request): string => {
+  if (process.env.GOOGLE_REDIRECT_URI && process.env.GOOGLE_REDIRECT_URI.trim()) {
+    return process.env.GOOGLE_REDIRECT_URI.trim();
+  }
+  if (req) {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      return `${proto}://${host}/api/auth/google/callback`;
+    }
+  }
+  return config.google.redirectUri;
+};
+
+/**
+ * Resolves the frontend URL target where the user and token are redirected after Google authentication.
+ */
+export const getGoogleFrontendRedirectUri = (req?: Request): string => {
+  if (process.env.GOOGLE_FRONTEND_REDIRECT_URI && process.env.GOOGLE_FRONTEND_REDIRECT_URI.trim()) {
+    return process.env.GOOGLE_FRONTEND_REDIRECT_URI.trim();
+  }
+  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) {
+    const base = process.env.FRONTEND_URL.trim().replace(/\/+$/, '');
+    return `${base}/?token=`;
+  }
+  if (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.trim() && !process.env.CORS_ORIGIN.includes('localhost')) {
+    const base = process.env.CORS_ORIGIN.trim().replace(/\/+$/, '');
+    return `${base}/?token=`;
+  }
+  if (req && req.headers.referer) {
+    try {
+      const refererUrl = new URL(req.headers.referer);
+      if (!refererUrl.host.includes('localhost') && !refererUrl.host.includes('127.0.0.1')) {
+        return `${refererUrl.origin}/?token=`;
+      }
+    } catch {}
+  }
+  return config.google.frontendRedirectUri;
+};
+
+/**
  * GET /api/auth/google
  * Initiates the Google OAuth 2.0 flow
  */
 export const googleAuthRedirect = (req: Request, res: Response) => {
+  const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
+  const redirectUri = getGoogleRedirectUri(req);
+
   if (!config.google.clientId) {
-    return res.redirect(`${config.google.frontendRedirectUri.split('?')[0]}?error=google_client_id_missing`);
+    return res.redirect(`${frontendRedirectUri.split('?')[0]}?error=google_client_id_missing`);
   }
 
   const scopes = [
@@ -36,7 +82,7 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
     config.google.clientId
-  )}&redirect_uri=${encodeURIComponent(config.google.redirectUri)}&response_type=code&scope=${encodeURIComponent(
+  )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(
     scopes
   )}&access_type=offline&prompt=consent`;
 
@@ -48,10 +94,13 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
  * Handles the Google OAuth callback, exchanges code for token, fetches user info
  */
 export const googleAuthCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
+  const redirectUri = getGoogleRedirectUri(req);
+
   try {
     const code = req.query.code as string;
     if (!code) {
-      res.redirect(`${config.google.frontendRedirectUri.split('?')[0]}?error=no_code_provided`);
+      res.redirect(`${frontendRedirectUri.split('?')[0]}?error=no_code_provided`);
       return;
     }
 
@@ -60,7 +109,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
       client_secret: config.google.clientSecret,
       code,
       grant_type: 'authorization_code',
-      redirect_uri: config.google.redirectUri,
+      redirect_uri: redirectUri,
     });
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -71,7 +120,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
 
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
-      res.redirect(`${config.google.frontendRedirectUri.split('?')[0]}?error=oauth_exchange_failed`);
+      res.redirect(`${frontendRedirectUri.split('?')[0]}?error=oauth_exchange_failed`);
       return;
     }
 
@@ -81,7 +130,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
     const googleUser = await userRes.json();
 
     if (!googleUser.email) {
-      res.redirect(`${config.google.frontendRedirectUri.split('?')[0]}?error=google_email_missing`);
+      res.redirect(`${frontendRedirectUri.split('?')[0]}?error=google_email_missing`);
       return;
     }
 
@@ -111,9 +160,9 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
     }
 
     const jwtToken = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: '7d' });
-    res.redirect(`${config.google.frontendRedirectUri}${jwtToken}`);
+    res.redirect(`${frontendRedirectUri}${jwtToken}`);
   } catch (error) {
-    res.redirect(`${config.google.frontendRedirectUri.split('?')[0]}?error=internal_server_error`);
+    res.redirect(`${frontendRedirectUri.split('?')[0]}?error=internal_server_error`);
   }
 };
 
