@@ -4,8 +4,8 @@ import { logger } from '../utils/logger';
 
 export const EMAIL_QUEUE_NAME = 'reachinbox-email-queue';
 
-// Shared Redis connection for BullMQ
-const redisConnection = createRedisConnection();
+// Dedicated Redis connection for BullMQ Queue
+const redisConnection = createRedisConnection('bullmq-queue');
 
 export interface EmailJobData {
   emailJobId: string;

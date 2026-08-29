@@ -2,6 +2,17 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Helper to sanitize and retrieve Redis URL
+const getRedisUrl = (): string | undefined => {
+  const url = process.env.REDIS_URL || process.env.REDISPRIVATE_URL || process.env.REDIS_TLS_URL;
+  if (url && url.trim().length > 0) {
+    return url.trim();
+  }
+  return undefined;
+};
+
+const redisUrl = getRedisUrl();
+
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -18,7 +29,8 @@ export const config = {
   },
 
   redis: {
-    host: process.env.REDIS_HOST || 'localhost',
+    url: redisUrl,
+    host: process.env.REDIS_HOST || (process.env.NODE_ENV === 'production' && !redisUrl ? '' : 'localhost'),
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD || undefined,
   },

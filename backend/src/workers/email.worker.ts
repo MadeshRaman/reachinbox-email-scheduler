@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { EMAIL_QUEUE_NAME, EmailJobData, rescheduleBullJob } from '../queues/email.queue';
-import { createRedisConnection } from '../config/redis';
+import { createRedisConnection, getSharedRedisClient } from '../config/redis';
 import { config } from '../config';
 import { prisma } from '../config/prisma';
 import { emailService } from '../services/email.service';
@@ -9,8 +9,11 @@ import { elasticsearchService } from '../services/elasticsearch.service';
 import { slackService } from '../services/slack.service';
 import { logger } from '../utils/logger';
 
-const redisConnection = createRedisConnection();
-const rateLimiter = new RateLimiterService(redisConnection);
+// Shared Redis client for distributed rate limiting
+const rateLimiter = new RateLimiterService(getSharedRedisClient());
+
+// Dedicated Redis connection for BullMQ Worker
+const workerRedisConnection = createRedisConnection('bullmq-worker');
 
 let emailWorker: Worker<EmailJobData> | null = null;
 
@@ -149,7 +152,7 @@ export const initEmailWorker = (): Worker<EmailJobData> => {
       }
     },
     {
-      connection: redisConnection,
+      connection: workerRedisConnection,
       concurrency: config.worker.concurrency,
     }
   );
