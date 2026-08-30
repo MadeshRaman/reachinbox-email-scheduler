@@ -6,7 +6,8 @@ export default defineConfig({
 
   preview: {
     allowedHosts: [
-      'upbeat-enthusiasm-production-7e93.up.railway.app'
+      'upbeat-enthusiasm-production-7e93.up.railway.app',
+      'disciplined-upliftment-production-1149.up.railway.app'
     ]
   },
 
