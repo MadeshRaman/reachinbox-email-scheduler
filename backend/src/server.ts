@@ -81,6 +81,7 @@ const startServer = async () => {
   const server = app.listen(config.port, () => {
     logger.info(`🚀 ReachInbox Email Scheduler Backend is running on port ${config.port} (env: ${config.nodeEnv})`);
     logger.info(`🔍 Health check available at /api/health`);
+    logger.info(`ACTIVE_GOOGLE_REDIRECT_URI=${config.google.redirectUri}`);
     logger.info(`🔐 Google OAuth Callback configured: ${config.google.redirectUri}`);
     logger.info(`🌐 Google OAuth Frontend redirect: ${config.google.frontendRedirectUri}`);
   });

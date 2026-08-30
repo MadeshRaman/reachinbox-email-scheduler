@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma';
-import { config } from '../config';
+import { config, isProductionEnv, KNOWN_PRODUCTION_BACKEND, KNOWN_PRODUCTION_FRONTEND } from '../config';
 import { logger } from '../utils/logger';
 
 /**
@@ -21,18 +21,16 @@ export const extractUserIdFromToken = (req: Request): string | null => {
   return null;
 };
 
-const KNOWN_PRODUCTION_BACKEND = 'https://reachinbox-email-scheduler-production-cac2.up.railway.app';
-const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-1149.up.railway.app';
-
 /**
  * Resolves the Google OAuth callback redirect URI dynamically.
  * Priority:
  * 1. GOOGLE_CALLBACK_URL (Railway configured environment variable)
- * 2. GOOGLE_REDIRECT_URI / GOOGLE_OAUTH_CALLBACK_URL
- * 3. Dynamic header resolution on production/cloud (x-forwarded-host / host)
- * 4. RAILWAY_PUBLIC_DOMAIN
- * 5. Production fallback (KNOWN_PRODUCTION_BACKEND)
- * 6. Local development fallback (http://localhost:5000/api/auth/google/callback)
+ * 2. GOOGLE_REDIRECT_URI
+ * 3. GOOGLE_OAUTH_CALLBACK_URL
+ * 4. Dynamic request header resolution (x-forwarded-proto + x-forwarded-host)
+ * 5. RAILWAY_PUBLIC_DOMAIN / PUBLIC_URL
+ * 6. Production fallback (KNOWN_PRODUCTION_BACKEND) if on Railway/Cloud
+ * 7. Local development fallback (http://localhost:5000/api/auth/google/callback) ONLY if explicitly local
  */
 export const getGoogleRedirectUri = (req?: Request): string => {
   const envCallback =
@@ -45,18 +43,22 @@ export const getGoogleRedirectUri = (req?: Request): string => {
   }
 
   if (req) {
-    const proto = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : req.protocol) || 'https';
+    const proto = req.headers['x-forwarded-proto'] || (isProductionEnv() ? 'https' : req.protocol) || 'https';
     const host = req.headers['x-forwarded-host'] || req.get('host');
     if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
       return `${proto}://${host}/api/auth/google/callback`;
     }
   }
 
+  if (process.env.PUBLIC_URL?.trim()) {
+    return `${process.env.PUBLIC_URL.trim().replace(/\/+$/, '')}/api/auth/google/callback`;
+  }
+
   if (process.env.RAILWAY_PUBLIC_DOMAIN?.trim()) {
     return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}/api/auth/google/callback`;
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionEnv()) {
     return `${KNOWN_PRODUCTION_BACKEND}/api/auth/google/callback`;
   }
 
@@ -70,8 +72,8 @@ export const getGoogleRedirectUri = (req?: Request): string => {
  * 2. FRONTEND_URL
  * 3. CORS_ORIGIN if non-localhost
  * 4. Dynamic referer header if non-localhost
- * 5. Production fallback (KNOWN_PRODUCTION_FRONTEND)
- * 6. Local development fallback (http://localhost:5173/?token=)
+ * 5. Production fallback (KNOWN_PRODUCTION_FRONTEND) if on Railway/Cloud
+ * 6. Local development fallback (http://localhost:5173/?token=) ONLY if explicitly local
  */
 export const getGoogleFrontendRedirectUri = (req?: Request): string => {
   const envFrontend =
@@ -101,7 +103,7 @@ export const getGoogleFrontendRedirectUri = (req?: Request): string => {
     } catch {}
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionEnv()) {
     return `${KNOWN_PRODUCTION_FRONTEND}/?token=`;
   }
 
@@ -116,7 +118,9 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
   const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
   const redirectUri = getGoogleRedirectUri(req);
 
-  logger.info(`[Auth] Initiating Google OAuth with redirect_uri: ${redirectUri}`);
+  // Exact required safe log immediately before constructing the Google authorization URL
+  console.log(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
+  logger.info(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
 
   if (!config.google.clientId) {
     logger.warn('[Auth] Google Client ID is missing. Redirecting to frontend with error.');
@@ -134,7 +138,7 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
     scopes
   )}&access_type=offline&prompt=consent`;
 
-  logger.info(`[Auth] Redirecting to accounts.google.com authorization page`);
+  logger.info(`[Auth] Redirecting to Google accounts authorization page`);
   res.redirect(authUrl);
 };
 
@@ -146,7 +150,8 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
   const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
   const redirectUri = getGoogleRedirectUri(req);
 
-  logger.info(`[Auth] Received Google OAuth callback. Exchanging code with redirect_uri: ${redirectUri}`);
+  console.log(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
+  logger.info(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
 
   try {
     const code = req.query.code as string;

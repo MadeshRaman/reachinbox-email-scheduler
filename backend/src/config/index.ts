@@ -13,11 +13,25 @@ const getRedisUrl = (): string | undefined => {
 
 const redisUrl = getRedisUrl();
 
-const KNOWN_PRODUCTION_BACKEND = 'https://reachinbox-email-scheduler-production-cac2.up.railway.app';
-const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-1149.up.railway.app';
+export const KNOWN_PRODUCTION_BACKEND = 'https://reachinbox-email-scheduler-production-cac2.up.railway.app';
+export const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-1149.up.railway.app';
+
+/**
+ * Checks if the current runtime environment is production (Railway, cloud, or NODE_ENV=production).
+ */
+export const isProductionEnv = (): boolean => {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    Boolean(process.env.RAILWAY_ENVIRONMENT) ||
+    Boolean(process.env.RAILWAY_PROJECT_ID) ||
+    Boolean(process.env.RAILWAY_PUBLIC_DOMAIN) ||
+    Boolean(process.env.PUBLIC_URL) ||
+    Boolean(process.env.GOOGLE_CALLBACK_URL?.includes('railway.app'))
+  );
+};
 
 // Helper to determine production backend and frontend URLs
-const getPublicBackendUrl = (): string => {
+export const getPublicBackendUrl = (): string => {
   const envCallback = process.env.GOOGLE_CALLBACK_URL || process.env.GOOGLE_REDIRECT_URI || process.env.GOOGLE_OAUTH_CALLBACK_URL;
   if (envCallback && envCallback.trim()) {
     try {
@@ -31,20 +45,20 @@ const getPublicBackendUrl = (): string => {
   if (process.env.RAILWAY_PUBLIC_DOMAIN && process.env.RAILWAY_PUBLIC_DOMAIN.trim()) {
     return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}`;
   }
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionEnv()) {
     return KNOWN_PRODUCTION_BACKEND;
   }
   return `http://localhost:${process.env.PORT || 5000}`;
 };
 
-const getFrontendUrl = (): string => {
+export const getFrontendUrl = (): string => {
   if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) {
     return process.env.FRONTEND_URL.trim().replace(/\/+$/, '');
   }
-  if (process.env.CORS_ORIGIN && !process.env.CORS_ORIGIN.includes('localhost')) {
+  if (process.env.CORS_ORIGIN && !process.env.CORS_ORIGIN.includes('localhost') && !process.env.CORS_ORIGIN.includes('127.0.0.1')) {
     return process.env.CORS_ORIGIN.trim().replace(/\/+$/, '');
   }
-  if (process.env.NODE_ENV === 'production') {
+  if (isProductionEnv()) {
     return KNOWN_PRODUCTION_FRONTEND;
   }
   return 'http://localhost:5173';
