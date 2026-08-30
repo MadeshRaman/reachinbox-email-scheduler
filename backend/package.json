@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && rimraf dist && tsc",
-    "start": "node dist/server.js",
+    "start": "npx prisma db push --skip-generate && node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:push": "prisma db push --skip-generate",
     "prisma:studio": "prisma studio",
     "type-check": "tsc --noEmit"
   },
