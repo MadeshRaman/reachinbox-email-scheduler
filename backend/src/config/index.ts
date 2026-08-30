@@ -18,6 +18,13 @@ const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-114
 
 // Helper to determine production backend and frontend URLs
 const getPublicBackendUrl = (): string => {
+  const envCallback = process.env.GOOGLE_CALLBACK_URL || process.env.GOOGLE_REDIRECT_URI || process.env.GOOGLE_OAUTH_CALLBACK_URL;
+  if (envCallback && envCallback.trim()) {
+    try {
+      const u = new URL(envCallback.trim());
+      return `${u.protocol}//${u.host}`;
+    } catch {}
+  }
   if (process.env.PUBLIC_URL && process.env.PUBLIC_URL.trim()) {
     return process.env.PUBLIC_URL.trim().replace(/\/+$/, '');
   }
@@ -27,7 +34,7 @@ const getPublicBackendUrl = (): string => {
   if (process.env.NODE_ENV === 'production') {
     return KNOWN_PRODUCTION_BACKEND;
   }
-  return 'http://localhost:5000';
+  return `http://localhost:${process.env.PORT || 5000}`;
 };
 
 const getFrontendUrl = (): string => {
@@ -46,7 +53,7 @@ const getFrontendUrl = (): string => {
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  corsOrigin: process.env.CORS_ORIGIN || getFrontendUrl(),
   databaseUrl: process.env.DATABASE_URL || 'mysql://reachinbox_user:reachinbox_password@localhost:3307/reachinbox_email_scheduler',
   
   jwtSecret: process.env.JWT_SECRET || 'reachinbox-scheduler-super-secret-jwt-key-2025',
@@ -54,8 +61,15 @@ export const config = {
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-    redirectUri: process.env.GOOGLE_REDIRECT_URI || `${getPublicBackendUrl()}/api/auth/google/callback`,
-    frontendRedirectUri: process.env.GOOGLE_FRONTEND_REDIRECT_URI || `${getFrontendUrl()}/?token=`,
+    redirectUri:
+      process.env.GOOGLE_CALLBACK_URL?.trim() ||
+      process.env.GOOGLE_REDIRECT_URI?.trim() ||
+      process.env.GOOGLE_OAUTH_CALLBACK_URL?.trim() ||
+      `${getPublicBackendUrl()}/api/auth/google/callback`,
+    frontendRedirectUri:
+      process.env.GOOGLE_FRONTEND_REDIRECT_URI?.trim() ||
+      process.env.FRONTEND_REDIRECT_URI?.trim() ||
+      `${getFrontendUrl()}/?token=`,
   },
 
   redis: {

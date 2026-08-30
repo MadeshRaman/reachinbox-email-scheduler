@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma';
 import { config } from '../config';
+import { logger } from '../utils/logger';
 
 /**
  * Helper to extract user ID from JWT if present
@@ -25,42 +26,72 @@ const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-114
 
 /**
  * Resolves the Google OAuth callback redirect URI dynamically.
+ * Priority:
+ * 1. GOOGLE_CALLBACK_URL (Railway configured environment variable)
+ * 2. GOOGLE_REDIRECT_URI / GOOGLE_OAUTH_CALLBACK_URL
+ * 3. Dynamic header resolution on production/cloud (x-forwarded-host / host)
+ * 4. RAILWAY_PUBLIC_DOMAIN
+ * 5. Production fallback (KNOWN_PRODUCTION_BACKEND)
+ * 6. Local development fallback (http://localhost:5000/api/auth/google/callback)
  */
 export const getGoogleRedirectUri = (req?: Request): string => {
-  if (process.env.GOOGLE_REDIRECT_URI && process.env.GOOGLE_REDIRECT_URI.trim()) {
-    return process.env.GOOGLE_REDIRECT_URI.trim();
+  const envCallback =
+    process.env.GOOGLE_CALLBACK_URL?.trim() ||
+    process.env.GOOGLE_REDIRECT_URI?.trim() ||
+    process.env.GOOGLE_OAUTH_CALLBACK_URL?.trim();
+
+  if (envCallback) {
+    return envCallback;
   }
+
   if (req) {
-    const proto = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : req.protocol) || 'http';
+    const proto = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : req.protocol) || 'https';
     const host = req.headers['x-forwarded-host'] || req.get('host');
     if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
       return `${proto}://${host}/api/auth/google/callback`;
     }
   }
-  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+
+  if (process.env.RAILWAY_PUBLIC_DOMAIN?.trim()) {
     return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}/api/auth/google/callback`;
   }
+
   if (process.env.NODE_ENV === 'production') {
     return `${KNOWN_PRODUCTION_BACKEND}/api/auth/google/callback`;
   }
-  return config.google.redirectUri;
+
+  return `http://localhost:${process.env.PORT || 5000}/api/auth/google/callback`;
 };
 
 /**
  * Resolves the frontend URL target where the user and token are redirected after Google authentication.
+ * Priority:
+ * 1. GOOGLE_FRONTEND_REDIRECT_URI / FRONTEND_REDIRECT_URI
+ * 2. FRONTEND_URL
+ * 3. CORS_ORIGIN if non-localhost
+ * 4. Dynamic referer header if non-localhost
+ * 5. Production fallback (KNOWN_PRODUCTION_FRONTEND)
+ * 6. Local development fallback (http://localhost:5173/?token=)
  */
 export const getGoogleFrontendRedirectUri = (req?: Request): string => {
-  if (process.env.GOOGLE_FRONTEND_REDIRECT_URI && process.env.GOOGLE_FRONTEND_REDIRECT_URI.trim()) {
-    return process.env.GOOGLE_FRONTEND_REDIRECT_URI.trim();
+  const envFrontend =
+    process.env.GOOGLE_FRONTEND_REDIRECT_URI?.trim() ||
+    process.env.FRONTEND_REDIRECT_URI?.trim();
+
+  if (envFrontend) {
+    return envFrontend.endsWith('token=') ? envFrontend : (envFrontend.includes('?') ? `${envFrontend}&token=` : `${envFrontend.replace(/\/+$/, '')}/?token=`);
   }
-  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) {
+
+  if (process.env.FRONTEND_URL?.trim()) {
     const base = process.env.FRONTEND_URL.trim().replace(/\/+$/, '');
     return `${base}/?token=`;
   }
-  if (process.env.CORS_ORIGIN && process.env.CORS_ORIGIN.trim() && !process.env.CORS_ORIGIN.includes('localhost')) {
+
+  if (process.env.CORS_ORIGIN?.trim() && !process.env.CORS_ORIGIN.includes('localhost') && !process.env.CORS_ORIGIN.includes('127.0.0.1')) {
     const base = process.env.CORS_ORIGIN.trim().replace(/\/+$/, '');
     return `${base}/?token=`;
   }
+
   if (req && req.headers.referer) {
     try {
       const refererUrl = new URL(req.headers.referer);
@@ -69,10 +100,12 @@ export const getGoogleFrontendRedirectUri = (req?: Request): string => {
       }
     } catch {}
   }
+
   if (process.env.NODE_ENV === 'production') {
     return `${KNOWN_PRODUCTION_FRONTEND}/?token=`;
   }
-  return config.google.frontendRedirectUri;
+
+  return 'http://localhost:5173/?token=';
 };
 
 /**
@@ -83,7 +116,10 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
   const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
   const redirectUri = getGoogleRedirectUri(req);
 
+  logger.info(`[Auth] Initiating Google OAuth with redirect_uri: ${redirectUri}`);
+
   if (!config.google.clientId) {
+    logger.warn('[Auth] Google Client ID is missing. Redirecting to frontend with error.');
     return res.redirect(`${frontendRedirectUri.split('?')[0]}?error=google_client_id_missing`);
   }
 
@@ -98,6 +134,7 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
     scopes
   )}&access_type=offline&prompt=consent`;
 
+  logger.info(`[Auth] Redirecting to accounts.google.com authorization page`);
   res.redirect(authUrl);
 };
 
@@ -109,9 +146,12 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
   const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
   const redirectUri = getGoogleRedirectUri(req);
 
+  logger.info(`[Auth] Received Google OAuth callback. Exchanging code with redirect_uri: ${redirectUri}`);
+
   try {
     const code = req.query.code as string;
     if (!code) {
+      logger.warn('[Auth] No OAuth authorization code provided in query parameters.');
       res.redirect(`${frontendRedirectUri.split('?')[0]}?error=no_code_provided`);
       return;
     }
@@ -132,6 +172,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
 
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
+      logger.error('[Auth] Failed to exchange code for token:', tokenData);
       res.redirect(`${frontendRedirectUri.split('?')[0]}?error=oauth_exchange_failed`);
       return;
     }
@@ -142,6 +183,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
     const googleUser = await userRes.json();
 
     if (!googleUser.email) {
+      logger.error('[Auth] No email returned in Google userinfo.');
       res.redirect(`${frontendRedirectUri.split('?')[0]}?error=google_email_missing`);
       return;
     }
@@ -160,6 +202,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
           avatarUrl,
         },
       });
+      logger.info(`[Auth] New user registered via Google OAuth: ${email}`);
     } else {
       user = await prisma.user.update({
         where: { id: user.id },
@@ -169,11 +212,14 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
           googleId: googleUser.id,
         },
       });
+      logger.info(`[Auth] Existing user logged in via Google OAuth: ${email}`);
     }
 
     const jwtToken = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: '7d' });
+    logger.info(`[Auth] Redirecting authenticated user to frontend application`);
     res.redirect(`${frontendRedirectUri}${jwtToken}`);
-  } catch (error) {
+  } catch (error: any) {
+    logger.error('[Auth] Exception during Google OAuth callback:', error?.message || error);
     res.redirect(`${frontendRedirectUri.split('?')[0]}?error=internal_server_error`);
   }
 };
