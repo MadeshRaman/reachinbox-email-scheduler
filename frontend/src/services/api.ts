@@ -9,13 +9,59 @@ import {
   HealthCheckResponse,
 } from '../types';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+/**
+ * Known live Railway backend base URL (used as guaranteed fallback for production deployments)
+ */
+const PRODUCTION_BACKEND_URL = 'https://reachinbox-email-scheduler-production-cac2.up.railway.app';
 
 /**
- * Returns the full backend Google OAuth initiation URL dynamically based on environment configuration.
+ * Robustly normalizes and sanitizes the API base URL:
+ * 1. Strips any accidental 'VITE_API_BASE_URL=' key prefix or surrounding quotes/spaces.
+ * 2. If running in production browser on Railway (not localhost) and no env var was compiled in,
+ *    falls back automatically to the live production backend Railway URL.
+ * 3. Ensures the base URL always ends with '/api' without duplicate '/api/api'.
+ * 4. Ensures no malformed protocol/hostname concatenation occurs.
+ */
+export const getNormalizedApiBaseUrl = (): string => {
+  let rawUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
+
+  // Strip accidental "VITE_API_BASE_URL=" prefix or quotes if pasted verbatim
+  rawUrl = rawUrl.replace(/^VITE_API_BASE_URL\s*=\s*/i, '').replace(/^['"]|['"]$/g, '').trim();
+
+  // If in browser and not localhost, but rawUrl is empty or local, use production backend
+  if (
+    typeof window !== 'undefined' &&
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1' &&
+    (!rawUrl || rawUrl === '/api' || rawUrl.includes('localhost') || rawUrl.includes('127.0.0.1'))
+  ) {
+    rawUrl = PRODUCTION_BACKEND_URL;
+  }
+
+  // If still empty (local dev without env), fallback to '/api' for Vite dev proxy
+  if (!rawUrl) {
+    return '/api';
+  }
+
+  // Strip trailing slashes
+  rawUrl = rawUrl.replace(/\/+$/, '');
+
+  // Ensure it ends with /api (without duplicating /api/api)
+  if (!rawUrl.endsWith('/api')) {
+    rawUrl = `${rawUrl}/api`;
+  }
+
+  return rawUrl;
+};
+
+export const API_BASE_URL = getNormalizedApiBaseUrl();
+
+/**
+ * Returns the full backend Google OAuth initiation URL.
+ * Example: "https://reachinbox-email-scheduler-production-cac2.up.railway.app/api/auth/google"
  */
 export const getGoogleAuthUrl = (): string => {
-  const base = API_BASE_URL.replace(/\/+$/, '');
+  const base = getNormalizedApiBaseUrl().replace(/\/+$/, '');
   return `${base}/auth/google`;
 };
 

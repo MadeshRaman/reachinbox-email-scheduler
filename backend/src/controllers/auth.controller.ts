@@ -20,6 +20,9 @@ export const extractUserIdFromToken = (req: Request): string | null => {
   return null;
 };
 
+const KNOWN_PRODUCTION_BACKEND = 'https://reachinbox-email-scheduler-production-cac2.up.railway.app';
+const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-1149.up.railway.app';
+
 /**
  * Resolves the Google OAuth callback redirect URI dynamically.
  */
@@ -28,11 +31,17 @@ export const getGoogleRedirectUri = (req?: Request): string => {
     return process.env.GOOGLE_REDIRECT_URI.trim();
   }
   if (req) {
-    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const proto = req.headers['x-forwarded-proto'] || (process.env.NODE_ENV === 'production' ? 'https' : req.protocol) || 'http';
     const host = req.headers['x-forwarded-host'] || req.get('host');
     if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
       return `${proto}://${host}/api/auth/google/callback`;
     }
+  }
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}/api/auth/google/callback`;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return `${KNOWN_PRODUCTION_BACKEND}/api/auth/google/callback`;
   }
   return config.google.redirectUri;
 };
@@ -59,6 +68,9 @@ export const getGoogleFrontendRedirectUri = (req?: Request): string => {
         return `${refererUrl.origin}/?token=`;
       }
     } catch {}
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return `${KNOWN_PRODUCTION_FRONTEND}/?token=`;
   }
   return config.google.frontendRedirectUri;
 };

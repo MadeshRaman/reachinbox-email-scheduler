@@ -13,23 +13,32 @@ const getRedisUrl = (): string | undefined => {
 
 const redisUrl = getRedisUrl();
 
+const KNOWN_PRODUCTION_BACKEND = 'https://reachinbox-email-scheduler-production-cac2.up.railway.app';
+const KNOWN_PRODUCTION_FRONTEND = 'https://disciplined-upliftment-production-1149.up.railway.app';
+
 // Helper to determine production backend and frontend URLs
 const getPublicBackendUrl = (): string => {
-  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+  if (process.env.PUBLIC_URL && process.env.PUBLIC_URL.trim()) {
+    return process.env.PUBLIC_URL.trim().replace(/\/+$/, '');
+  }
+  if (process.env.RAILWAY_PUBLIC_DOMAIN && process.env.RAILWAY_PUBLIC_DOMAIN.trim()) {
     return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}`;
   }
-  if (process.env.PUBLIC_URL) {
-    return process.env.PUBLIC_URL.trim().replace(/\/+$/, '');
+  if (process.env.NODE_ENV === 'production') {
+    return KNOWN_PRODUCTION_BACKEND;
   }
   return 'http://localhost:5000';
 };
 
 const getFrontendUrl = (): string => {
-  if (process.env.FRONTEND_URL) {
+  if (process.env.FRONTEND_URL && process.env.FRONTEND_URL.trim()) {
     return process.env.FRONTEND_URL.trim().replace(/\/+$/, '');
   }
   if (process.env.CORS_ORIGIN && !process.env.CORS_ORIGIN.includes('localhost')) {
     return process.env.CORS_ORIGIN.trim().replace(/\/+$/, '');
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return KNOWN_PRODUCTION_FRONTEND;
   }
   return 'http://localhost:5173';
 };

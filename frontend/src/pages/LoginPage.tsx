@@ -4,7 +4,7 @@ import { loginApi, getGoogleAuthUrl } from '../services/api';
 import { User } from '../types';
 
 interface LoginPageProps {
-  onLoginSuccess: (user: User) => void;
+  onLoginSuccess: (user: User, token?: string) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
@@ -14,8 +14,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
   const handleGoogleLogin = () => {
     setLoading(true);
-    // Redirect to backend OAuth route dynamically configured via environment
-    window.location.href = getGoogleAuthUrl();
+    const targetUrl = getGoogleAuthUrl();
+    console.log('[Auth] Redirecting to Google OAuth:', targetUrl);
+    window.location.href = targetUrl;
+  };
+
+  const handleDemoLogin = async () => {
+    setLoading(true);
+    try {
+      const res = await loginApi({ email: emailInput, name: nameInput });
+      if (res.success && res.user && res.token) {
+        onLoginSuccess(res.user, res.token);
+      }
+    } catch (err) {
+      console.error('Demo login failed:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const featurePills = [
@@ -107,6 +122,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               />
             </svg>
             <span>{loading ? 'Authenticating...' : 'Sign In with Google Account'}</span>
+          </button>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-slate-800"></div>
+            <span className="flex-shrink mx-3 text-[10px] uppercase tracking-wider text-slate-500 font-mono">or test directly</span>
+            <div className="flex-grow border-t border-slate-800"></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDemoLogin}
+            disabled={loading}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-200 text-xs font-semibold transition-all active:scale-95 disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Continue as Demo User (1-Click Instant)</span>
           </button>
         </div>
 
