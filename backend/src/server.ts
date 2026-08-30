@@ -105,9 +105,15 @@ const startServer = async () => {
   const server = app.listen(config.port, () => {
     logger.info(`🚀 ReachInbox Email Scheduler Backend is running on port ${config.port} (env: ${config.nodeEnv})`);
     logger.info(`🔍 Health check available at /api/health`);
-    logger.info(`ACTIVE_GOOGLE_REDIRECT_URI=${config.google.redirectUri}`);
     logger.info(`🔐 Google OAuth Callback configured: ${config.google.redirectUri}`);
     logger.info(`🌐 Google OAuth Frontend redirect: ${config.google.frontendRedirectUri}`);
+    if (config.smtp.host && config.smtp.user && config.smtp.pass) {
+      logger.info(`📧 SMTP Email Provider: ${config.smtp.host}:${config.smtp.port} (secure: ${config.smtp.secure}, user: ${config.smtp.user})`);
+    } else if (config.nodeEnv === 'production') {
+      logger.warn(`⚠️ SMTP Email Provider is NOT configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS in Railway variables.`);
+    } else {
+      logger.info(`📧 SMTP Email Provider: Local/Ethereal mode`);
+    }
   });
 
   // Graceful Shutdown

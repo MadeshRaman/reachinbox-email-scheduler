@@ -208,6 +208,31 @@ const getRedisUrl = (): string | undefined => {
 
 const redisUrl = getRedisUrl();
 
+// Helper to parse boolean from env
+const parseBooleanEnv = (val?: string | null, keyName?: string, defaultVal = false): boolean => {
+  if (!val) return defaultVal;
+  const cleaned = cleanEnv(val, keyName).toLowerCase();
+  if (cleaned === 'true' || cleaned === '1' || cleaned === 'yes') return true;
+  if (cleaned === 'false' || cleaned === '0' || cleaned === 'no') return false;
+  return defaultVal;
+};
+
+const rawSmtpPort = parseInt(cleanEnv(process.env.SMTP_PORT, 'SMTP_PORT') || '587', 10);
+const smtpPort = isNaN(rawSmtpPort) ? 587 : rawSmtpPort;
+const rawSmtpSecure = cleanEnv(process.env.SMTP_SECURE, 'SMTP_SECURE');
+const smtpSecure = rawSmtpSecure.length > 0
+  ? parseBooleanEnv(rawSmtpSecure, 'SMTP_SECURE', smtpPort === 465)
+  : smtpPort === 465;
+
+const smtpHost = cleanEnv(process.env.SMTP_HOST, 'SMTP_HOST') || (isProductionEnv() ? '' : 'smtp.ethereal.email');
+const smtpUser = cleanEnv(process.env.SMTP_USER || process.env.ETHEREAL_USER, 'SMTP_USER');
+const smtpPass = cleanEnv(process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.ETHEREAL_PASS, 'SMTP_PASS');
+const smtpFromEmail =
+  cleanEnv(process.env.SMTP_FROM || process.env.SMTP_FROM_EMAIL, 'SMTP_FROM') ||
+  smtpUser ||
+  (isProductionEnv() ? '' : 'reachinbox@demo.ethereal.email');
+const smtpFromName = cleanEnv(process.env.SMTP_FROM_NAME, 'SMTP_FROM_NAME') || 'ReachInbox Scheduler';
+
 export const config = {
   port: parseInt(cleanEnv(process.env.PORT, 'PORT') || '5000', 10),
   nodeEnv: isProductionEnv() ? 'production' : (cleanEnv(process.env.NODE_ENV, 'NODE_ENV') || 'development'),
@@ -253,13 +278,13 @@ export const config = {
   },
 
   smtp: {
-    host: cleanEnv(process.env.SMTP_HOST, 'SMTP_HOST') || 'smtp.ethereal.email',
-    port: parseInt(cleanEnv(process.env.SMTP_PORT, 'SMTP_PORT') || '587', 10),
-    secure: cleanEnv(process.env.SMTP_SECURE, 'SMTP_SECURE') === 'true',
-    user: cleanEnv(process.env.ETHEREAL_USER || process.env.SMTP_USER, 'SMTP_USER'),
-    pass: cleanEnv(process.env.ETHEREAL_PASS || process.env.SMTP_PASS, 'SMTP_PASS'),
-    fromEmail: cleanEnv(process.env.SMTP_FROM_EMAIL, 'SMTP_FROM_EMAIL') || 'reachinbox@demo.ethereal.email',
-    fromName: cleanEnv(process.env.SMTP_FROM_NAME, 'SMTP_FROM_NAME') || 'ReachInbox Scheduler',
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    user: smtpUser,
+    pass: smtpPass,
+    fromEmail: smtpFromEmail,
+    fromName: smtpFromName,
   },
 
   slack: {
