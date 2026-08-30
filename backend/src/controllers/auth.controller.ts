@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma';
-import { config, isProductionEnv, KNOWN_PRODUCTION_BACKEND, KNOWN_PRODUCTION_FRONTEND } from '../config';
+import {
+  config,
+  getGoogleCallbackUrl,
+  getGoogleFrontendRedirectUri,
+  cleanEnv,
+  isProductionEnv,
+} from '../config';
 import { logger } from '../utils/logger';
 
 /**
@@ -21,93 +27,13 @@ export const extractUserIdFromToken = (req: Request): string | null => {
   return null;
 };
 
-/**
- * Resolves the Google OAuth callback redirect URI dynamically.
- * Priority:
- * 1. GOOGLE_CALLBACK_URL (Railway configured environment variable)
- * 2. GOOGLE_REDIRECT_URI
- * 3. GOOGLE_OAUTH_CALLBACK_URL
- * 4. Dynamic request header resolution (x-forwarded-proto + x-forwarded-host)
- * 5. RAILWAY_PUBLIC_DOMAIN / PUBLIC_URL
- * 6. Production fallback (KNOWN_PRODUCTION_BACKEND) if on Railway/Cloud
- * 7. Local development fallback (http://localhost:5000/api/auth/google/callback) ONLY if explicitly local
- */
+// Re-export URL resolvers for backward compatibility
 export const getGoogleRedirectUri = (req?: Request): string => {
-  const envCallback =
-    process.env.GOOGLE_CALLBACK_URL?.trim() ||
-    process.env.GOOGLE_REDIRECT_URI?.trim() ||
-    process.env.GOOGLE_OAUTH_CALLBACK_URL?.trim();
-
-  if (envCallback) {
-    return envCallback;
-  }
-
-  if (req) {
-    const proto = req.headers['x-forwarded-proto'] || (isProductionEnv() ? 'https' : req.protocol) || 'https';
-    const host = req.headers['x-forwarded-host'] || req.get('host');
-    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-      return `${proto}://${host}/api/auth/google/callback`;
-    }
-  }
-
-  if (process.env.PUBLIC_URL?.trim()) {
-    return `${process.env.PUBLIC_URL.trim().replace(/\/+$/, '')}/api/auth/google/callback`;
-  }
-
-  if (process.env.RAILWAY_PUBLIC_DOMAIN?.trim()) {
-    return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}/api/auth/google/callback`;
-  }
-
-  if (isProductionEnv()) {
-    return `${KNOWN_PRODUCTION_BACKEND}/api/auth/google/callback`;
-  }
-
-  return `http://localhost:${process.env.PORT || 5000}/api/auth/google/callback`;
+  return getGoogleCallbackUrl(req);
 };
 
-/**
- * Resolves the frontend URL target where the user and token are redirected after Google authentication.
- * Priority:
- * 1. GOOGLE_FRONTEND_REDIRECT_URI / FRONTEND_REDIRECT_URI
- * 2. FRONTEND_URL
- * 3. CORS_ORIGIN if non-localhost
- * 4. Dynamic referer header if non-localhost
- * 5. Production fallback (KNOWN_PRODUCTION_FRONTEND) if on Railway/Cloud
- * 6. Local development fallback (http://localhost:5173/?token=) ONLY if explicitly local
- */
-export const getGoogleFrontendRedirectUri = (req?: Request): string => {
-  const envFrontend =
-    process.env.GOOGLE_FRONTEND_REDIRECT_URI?.trim() ||
-    process.env.FRONTEND_REDIRECT_URI?.trim();
-
-  if (envFrontend) {
-    return envFrontend.endsWith('token=') ? envFrontend : (envFrontend.includes('?') ? `${envFrontend}&token=` : `${envFrontend.replace(/\/+$/, '')}/?token=`);
-  }
-
-  if (process.env.FRONTEND_URL?.trim()) {
-    const base = process.env.FRONTEND_URL.trim().replace(/\/+$/, '');
-    return `${base}/?token=`;
-  }
-
-  if (process.env.CORS_ORIGIN?.trim() && !process.env.CORS_ORIGIN.includes('localhost') && !process.env.CORS_ORIGIN.includes('127.0.0.1')) {
-    const base = process.env.CORS_ORIGIN.trim().replace(/\/+$/, '');
-    return `${base}/?token=`;
-  }
-
-  if (req && req.headers.referer) {
-    try {
-      const refererUrl = new URL(req.headers.referer);
-      if (!refererUrl.host.includes('localhost') && !refererUrl.host.includes('127.0.0.1')) {
-        return `${refererUrl.origin}/?token=`;
-      }
-    } catch {}
-  }
-
-  if (isProductionEnv()) {
-    return `${KNOWN_PRODUCTION_FRONTEND}/?token=`;
-  }
-
-  return 'http://localhost:5173/?token=';
+export const getFrontendRedirectUri = (req?: Request): string => {
+  return getGoogleFrontendRedirectUri(req);
 };
 
 /**
@@ -116,20 +42,24 @@ export const getGoogleFrontendRedirectUri = (req?: Request): string => {
  */
 export const googleAuthRedirect = (req: Request, res: Response) => {
   const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
-  const redirectUri = getGoogleRedirectUri(req);
+  const redirectUri = getGoogleCallbackUrl(req);
 
-  // Exact required safe log immediately before constructing the Google authorization URL
-  console.log(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
-  logger.info(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
+  // High-visibility logs for Railway debugging & verification
+  console.log(`[GoogleOAuth:Initiate] ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
+  console.log(`[GoogleOAuth:Initiate] ACTIVE_FRONTEND_REDIRECT_URI=${frontendRedirectUri}`);
+  logger.info(`[GoogleOAuth:Initiate] ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
 
   if (!config.google.clientId) {
     logger.warn('[Auth] Google Client ID is missing. Redirecting to frontend with error.');
-    return res.redirect(`${frontendRedirectUri.split('?')[0]}?error=google_client_id_missing`);
+    const errorUrl = frontendRedirectUri.includes('?')
+      ? `${frontendRedirectUri.split('?')[0]}?error=google_client_id_missing`
+      : `${frontendRedirectUri}?error=google_client_id_missing`;
+    return res.redirect(errorUrl);
   }
 
   const scopes = [
     'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile'
+    'https://www.googleapis.com/auth/userinfo.profile',
   ].join(' ');
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
@@ -138,8 +68,29 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
     scopes
   )}&access_type=offline&prompt=consent`;
 
-  logger.info(`[Auth] Redirecting to Google accounts authorization page`);
+  logger.info(`[Auth] Redirecting browser to Google OAuth authorization endpoint`);
   res.redirect(authUrl);
+};
+
+/**
+ * Helper to safely append token to frontend URL
+ */
+const attachTokenToFrontendUrl = (baseUrl: string, token: string): string => {
+  if (baseUrl.endsWith('token=')) {
+    return `${baseUrl}${token}`;
+  }
+  if (baseUrl.includes('?')) {
+    return `${baseUrl}&token=${token}`;
+  }
+  return `${baseUrl.replace(/\/+$/, '')}/?token=${token}`;
+};
+
+/**
+ * Helper to safely append error to frontend URL
+ */
+const attachErrorToFrontendUrl = (baseUrl: string, errorCode: string): string => {
+  const cleanBase = baseUrl.split('?')[0].replace(/\/+$/, '');
+  return `${cleanBase}/?error=${encodeURIComponent(errorCode)}`;
 };
 
 /**
@@ -148,16 +99,17 @@ export const googleAuthRedirect = (req: Request, res: Response) => {
  */
 export const googleAuthCallback = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const frontendRedirectUri = getGoogleFrontendRedirectUri(req);
-  const redirectUri = getGoogleRedirectUri(req);
+  const redirectUri = getGoogleCallbackUrl(req);
 
-  console.log(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
-  logger.info(`ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
+  console.log(`[GoogleOAuth:Callback] ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
+  console.log(`[GoogleOAuth:Callback] ACTIVE_FRONTEND_REDIRECT_URI=${frontendRedirectUri}`);
+  logger.info(`[GoogleOAuth:Callback] ACTIVE_GOOGLE_REDIRECT_URI=${redirectUri}`);
 
   try {
     const code = req.query.code as string;
     if (!code) {
       logger.warn('[Auth] No OAuth authorization code provided in query parameters.');
-      res.redirect(`${frontendRedirectUri.split('?')[0]}?error=no_code_provided`);
+      res.redirect(attachErrorToFrontendUrl(frontendRedirectUri, 'no_code_provided'));
       return;
     }
 
@@ -178,7 +130,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
       logger.error('[Auth] Failed to exchange code for token:', tokenData);
-      res.redirect(`${frontendRedirectUri.split('?')[0]}?error=oauth_exchange_failed`);
+      res.redirect(attachErrorToFrontendUrl(frontendRedirectUri, 'oauth_exchange_failed'));
       return;
     }
 
@@ -189,7 +141,7 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
 
     if (!googleUser.email) {
       logger.error('[Auth] No email returned in Google userinfo.');
-      res.redirect(`${frontendRedirectUri.split('?')[0]}?error=google_email_missing`);
+      res.redirect(attachErrorToFrontendUrl(frontendRedirectUri, 'google_email_missing'));
       return;
     }
 
@@ -222,10 +174,10 @@ export const googleAuthCallback = async (req: Request, res: Response, next: Next
 
     const jwtToken = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: '7d' });
     logger.info(`[Auth] Redirecting authenticated user to frontend application`);
-    res.redirect(`${frontendRedirectUri}${jwtToken}`);
+    res.redirect(attachTokenToFrontendUrl(frontendRedirectUri, jwtToken));
   } catch (error: any) {
     logger.error('[Auth] Exception during Google OAuth callback:', error?.message || error);
-    res.redirect(`${frontendRedirectUri.split('?')[0]}?error=internal_server_error`);
+    res.redirect(attachErrorToFrontendUrl(frontendRedirectUri, 'internal_server_error'));
   }
 };
 

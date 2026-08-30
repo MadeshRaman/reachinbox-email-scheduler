@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
-import { Mail, Sparkles, ShieldCheck, Zap, HardDrive, Search, Slack, ArrowRight } from 'lucide-react';
+import { Mail, Sparkles, ShieldCheck, Zap, HardDrive, Search, Slack, ArrowRight, AlertCircle } from 'lucide-react';
 import { loginApi, getGoogleAuthUrl } from '../services/api';
 import { User } from '../types';
 
 interface LoginPageProps {
   onLoginSuccess: (user: User, token?: string) => void;
+  initialError?: string | null;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialError }) => {
   const [loading, setLoading] = useState(false);
   const [emailInput, setEmailInput] = useState('demo@reachinbox.ai');
   const [nameInput, setNameInput] = useState('ReachInbox Demo User');
+  const [errorMsg, setErrorMsg] = useState<string | null>(initialError || null);
 
   const handleGoogleLogin = () => {
     setLoading(true);
+    setErrorMsg(null);
     const targetUrl = getGoogleAuthUrl();
     console.log('[Auth] Redirecting to Google OAuth:', targetUrl);
     window.location.href = targetUrl;
@@ -21,13 +24,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
   const handleDemoLogin = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await loginApi({ email: emailInput, name: nameInput });
       if (res.success && res.user && res.token) {
         onLoginSuccess(res.user, res.token);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Demo login failed:', err);
+      setErrorMsg(err?.response?.data?.error?.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
@@ -96,6 +101,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono"
             />
           </div>
+
+          {errorMsg && (
+            <div className="flex items-center space-x-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+              <span>{errorMsg.includes('_') ? `Auth notice: ${errorMsg.replace(/_/g, ' ')}` : errorMsg}</span>
+            </div>
+          )}
 
           <button
             onClick={handleGoogleLogin}

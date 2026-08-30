@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { config } from './config';
+import { config, KNOWN_PRODUCTION_FRONTEND, getPublicBackendUrl } from './config';
 import apiRoutes from './routes';
 import { requestLogger } from './middleware/requestLogger';
 import { errorHandler } from './middleware/errorHandler';
@@ -11,14 +11,38 @@ import { logger } from './utils/logger';
 
 const app = express();
 
+// Trust reverse proxy (Railway edge proxy / Caddy / Cloudflare)
+app.set('trust proxy', 1);
+
+// Allowed origins for CORS
+const allowedOrigins = [
+  config.corsOrigin,
+  KNOWN_PRODUCTION_FRONTEND,
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+
 // Global Middlewares
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow all origins in dev or matching CORS_ORIGIN
-      callback(null, true);
+      // Allow requests with no origin (like server-to-server, curl, health checks)
+      if (!origin) return callback(null, true);
+      // In dev or if origin matches allowed list, Railway domains, or Vercel
+      if (
+        config.nodeEnv === 'development' ||
+        allowedOrigins.includes(origin) ||
+        origin.includes('railway.app') ||
+        origin.includes('vercel.app')
+      ) {
+        return callback(null, true);
+      }
+      return callback(null, true);
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   })
 );
 app.use(express.json({ limit: '10mb' }));

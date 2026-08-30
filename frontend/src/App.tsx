@@ -7,11 +7,18 @@ import { getMeApi } from './services/api';
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [oauthError, setOauthError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Check if token is in URL (Google OAuth Redirect)
+    // 1. Check if token or error is in URL (Google OAuth Redirect)
     const urlParams = new URLSearchParams(window.location.search);
     const tokenFromUrl = urlParams.get('token');
+    const errorFromUrl = urlParams.get('error');
+
+    if (errorFromUrl) {
+      setOauthError(errorFromUrl);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
     
     if (tokenFromUrl) {
       localStorage.setItem('reachinbox_token', tokenFromUrl);
@@ -55,10 +62,11 @@ export const App: React.FC = () => {
   }
 
   if (!user) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+    return <LoginPage onLoginSuccess={handleLoginSuccess} initialError={oauthError} />;
   }
 
   return <DashboardPage user={user} onLogout={handleLogout} />;
 };
 
 export default App;
+
